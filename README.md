@@ -1,10 +1,18 @@
-# Murmur
+# Murmur 🎙️
 
-Local dictation for Windows 10. Hold a hotkey, speak, release. Murmur turns your speech into clean text and pastes it into the active window. Nothing leaves your computer.
+Murmur types for you. Hold a key, speak, and let go. Murmur turns your speech into clean text and pastes it into the app you are using.
 
-Pipeline: hotkey, microphone, 16 kHz mono, speech to text (NVIDIA Parakeet TDT 0.6B v3, int8 ONNX, English, Spanish and 23 more languages), cleanup with a local LLM (Qwen3 4B Instruct 2507 through llama.cpp and Vulkan), paste.
+Everything runs on your own computer. Your voice and your text never leave it. Murmur is for Windows 10.
 
-## Use
+## Getting started 🚀
+
+1. Build and install Murmur. Follow the [build instructions](#rebuild) below.
+2. Start Murmur. It opens in the system tray (the small icons near the clock).
+3. On the first start, Murmur downloads its models. Models are files that let AI software do a task, such as recognizing speech. Murmur needs two models, and the download is about 3.2 GB. After the download, you can dictate without an internet connection.
+4. Click into any text box, such as an email, a chat, or a document.
+5. Hold `Ctrl+Shift+Space`, speak, and release the keys. Your text appears in the text box.
+
+## How to use it 🎛️
 
 | Action | Result |
 | --- | --- |
@@ -16,32 +24,79 @@ Pipeline: hotkey, microphone, 16 kHz mono, speech to text (NVIDIA Parakeet TDT 0
 | Start `murmur.exe` again | Open Settings. |
 | `murmur.exe --quit` | Stop the running Murmur. |
 
-Murmur starts in the tray. The overlay at the bottom of the screen shows Listening (with live microphone level), Transcribing, Polishing or an error. Clips shorter than 0.3 s or without sound are ignored.
+A small overlay at the bottom of the screen shows what Murmur is doing:
 
-## What the cleanup does
+- **Listening**: Murmur hears you. A live bar shows your microphone level.
+- **Transcribing**: Murmur turns your speech into text.
+- **Polishing**: Murmur cleans up the text.
+- **Error**: Something went wrong. The overlay shows a short message.
 
-It removes fillers (um, uh, mhm, filler "like", "you know"), stutters and repeated words, and applies self-corrections ("at 5, no wait, at 6" becomes "at 6"). It fixes grammar and punctuation, and writes spoken forms the written way ("github dot com" becomes `github.com`, "five hundred megabytes" becomes `500 MB`). It fixes the casing of technical terms (JavaScript, PostgreSQL, macOS), turns dictated lists into lists, and turns "new line" and "new paragraph" into line breaks. Spanish stays Spanish. A question or command is cleaned, never answered. For results of one or two words, or when the LLM fails, you get the raw transcript.
+Murmur ignores clips that are shorter than 0.3 seconds or have no sound.
 
-## Settings
+## How it works 🧠
 
-Settings are stored in `%APPDATA%\com.murmur.app\settings.json`.
+Murmur works in three steps:
+
+1. **Listen.** Murmur records your voice from the microphone.
+2. **Write.** A speech recognition model turns the recording into text. Murmur uses NVIDIA Parakeet TDT 0.6B v3. It supports English, Spanish, and 23 more languages.
+3. **Clean up.** A small language model fixes the text. A language model is a program that is trained on large amounts of text, so it can work with words. Murmur uses Qwen3 4B Instruct 2507. Then Murmur pastes the result.
+
+Both models run **locally**. This means they run on your computer, not on a server on the internet. Your audio and your text stay private.
+
+Murmur can use your graphics card (GPU) to work faster. The GPU is the chip that draws images on your screen. It is also good at the kind of math that models need. If you have no suitable GPU, you can use the processor (CPU) for speech recognition instead. Change this in Settings.
+
+## What the cleanup does ✨
+
+When you speak, you say "um", repeat words, and change your mind. Murmur fixes this for you.
+
+- It removes fillers (um, uh, mhm, filler "like", "you know"), stutters, and repeated words.
+- It applies self-corrections. "At 5, no wait, at 6" becomes "at 6".
+- It fixes grammar and punctuation.
+- It writes spoken forms the written way. "github dot com" becomes `github.com`, and "five hundred megabytes" becomes `500 MB`.
+- It fixes the casing of technical terms (JavaScript, PostgreSQL, macOS).
+- It turns dictated lists into lists.
+- It turns "new line" and "new paragraph" into line breaks.
+- Spanish stays Spanish.
+- It cleans up questions and commands without answering them.
+
+If the result is only one or two words, or if the cleanup fails, you get the raw transcript. The raw transcript is the text exactly as the speech recognition wrote it.
+
+## Settings ⚙️
+
+Open Settings from the tray icon.
 
 - **Hotkey**: record a new key combination in the Settings window.
-- **Microphone**: system default or a chosen input device.
-- **STT device**: GPU (DirectML on the discrete GPU) or CPU.
-- **AI cleanup**: on or off (also in the tray menu).
-- **Vocabulary**: names and terms the LLM must spell exactly.
-- **Replacements**: exact text replacements applied after the LLM.
-- **Paste mode**: paste (Ctrl+V, then restore your clipboard) or clipboard only.
+- **Microphone**: the system default or a chosen input device.
+- **STT device**: GPU or CPU. STT means speech to text, the speech recognition step. The GPU option uses DirectML on the discrete GPU. A discrete GPU is a separate graphics card. DirectML is a Microsoft technology that runs models on the GPU.
+- **AI cleanup**: on or off. You can also change this in the tray menu.
+- **Vocabulary**: names and terms that the language model must spell exactly.
+- **Replacements**: exact text replacements that Murmur applies after the cleanup.
+- **Paste mode**: paste (Murmur presses Ctrl+V, then restores your clipboard) or clipboard only.
 - **Sounds**: start and stop beeps.
 - **Launch at login**: off by default.
-- **History**: the last results with copy button, raw text and timings. Stored in `%APPDATA%\com.murmur.app\history.jsonl`.
+- **History**: the last results with a copy button, the raw text, and the timings.
 
-Files:
+## Where Murmur keeps its files 📁
 
-- Models: `%APPDATA%\com.murmur.app\models` (downloaded on first run if missing, about 3.2 GB).
-- Cache: `%APPDATA%\com.murmur.app\cache` (saved speech encoder graph, about 650 MB, and saved LLM prompt, about 170 MB) and `llama-device.json` (GPU choice for llama-server). Delete them to rebuild them on the next start.
-- Logs: `%LOCALAPPDATA%\com.murmur.app\logs` (`murmur.log`, `llama-server.log`). `murmur.log` has millisecond timestamps (UTC) and is cut at 1 MB on start.
+Settings are stored in `%APPDATA%\com.murmur.app\settings.json`. History is stored in `%APPDATA%\com.murmur.app\history.jsonl`.
+
+- **Models**: `%APPDATA%\com.murmur.app\models`. Murmur downloads them on first run if they are missing (about 3.2 GB).
+- **Cache**: `%APPDATA%\com.murmur.app\cache`. These saved files help Murmur start faster. They include speech processing data (about 650 MB) and language model data (about 170 MB). The file `llama-device.json` stores the graphics card choice for text cleanup. Murmur rebuilds these files on the next start if you delete them.
+- **Logs**: `%LOCALAPPDATA%\com.murmur.app\logs` (`murmur.log` and `llama-server.log`). `murmur.log` has millisecond timestamps (UTC). Murmur cuts it at 1 MB on start.
+
+## Limits ⚠️
+
+- After pasting, Murmur restores only text on the clipboard. It does not restore images or files.
+- While Murmur processes a clip, it ignores a new hotkey press.
+- The first start after an install loads the models and builds the cache. This takes about 10 seconds. Later starts take about 3 seconds. If you record before that, you see "Speech model is still loading".
+
+---
+
+# Developer reference 🛠️
+
+This part is for people who build, test, or change Murmur.
+
+Pipeline: hotkey, microphone, 16 kHz mono, speech to text (NVIDIA Parakeet TDT 0.6B v3, int8 ONNX, English, Spanish and 23 more languages), cleanup with a local LLM (Qwen3 4B Instruct 2507 through llama.cpp and Vulkan), paste.
 
 ## Rebuild
 
@@ -121,12 +176,6 @@ Events (to all windows):
 | [Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) (GGUF conversion by bartowski) | Apache-2.0 |
 
 The models are not part of this repository. Murmur downloads them on first run.
-
-## Limits
-
-- Only text is restored on the clipboard after pasting (not images or files).
-- While Murmur processes a clip, a new hotkey press is ignored.
-- The first start after an install loads the models and builds the cache (about 10 s). Later starts take about 3 s; recording before that shows "Speech model is still loading".
 
 ## License
 
