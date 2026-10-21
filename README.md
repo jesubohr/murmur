@@ -127,3 +127,7 @@ The models are not part of this repository. Murmur downloads them on first run.
 - Only text is restored on the clipboard after pasting (not images or files).
 - While Murmur processes a clip, a new hotkey press is ignored.
 - The first start after an install loads the models and builds the cache (about 10 s). Later starts take about 3 s; recording before that shows "Speech model is still loading".
+
+## License
+
+MIT. See [LICENSE](LICENSE). The third-party components keep their own licenses.
