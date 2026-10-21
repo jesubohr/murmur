@@ -1,0 +1,17 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# Third-party binaries (tools/fetch_binaries.ps1)
+src-tauri/resources/llama/
+src-tauri/dml/
+
+# Local test output and screenshots
+tests/last_*.json
+tests/*.png
+
+# Models, logs, environment files
+*.onnx
+*.gguf
+*.log
+.env*

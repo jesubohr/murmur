@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Murmur</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body data-state="idle">
+  <div class="pill" role="status" aria-live="polite">
+    <div class="view listening">
+      <span class="rec-dot"></span>
+      <div class="bars" id="bars" aria-hidden="true"></div>
+      <span class="time" id="time">0:00</span>
+      <span class="hint" id="hint">hold</span>
+    </div>
+    <div class="view busy">
+      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span id="busy-label">Transcribing</span>
+    </div>
+    <div class="view done">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>
+      <span>Done</span>
+    </div>
+    <div class="view error">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4v5M8 11.5v.5"/></svg>
+      <span class="message" id="error-message"></span>
+    </div>
+    <div class="view cancelled">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>
+      <span>Cancelled</span>
+    </div>
+  </div>
+  <script src="mock.js"></script>
+  <script src="overlay.js"></script>
+</body>
+</html>

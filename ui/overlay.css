@@ -1,0 +1,152 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  font: 500 12px/1 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  color: #f2f3f7;
+}
+
+.pill {
+  position: relative;
+  width: 224px;
+  height: 40px;
+  box-sizing: border-box;
+  border-radius: 20px;
+  background: rgba(14, 15, 19, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+body:not([data-state="idle"]) .pill {
+  opacity: 1;
+  transform: none;
+}
+
+.view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+body[data-state="listening"] .listening,
+body[data-state="transcribing"] .busy,
+body[data-state="polishing"] .busy,
+body[data-state="done"] .done,
+body[data-state="error"] .error,
+body[data-state="cancelled"] .cancelled {
+  opacity: 1;
+}
+
+.rec-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff4d5e;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.bars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+}
+
+.bars span {
+  width: 3px;
+  height: 22px;
+  border-radius: 2px;
+  background: #e9ebf3;
+  transform: scaleY(0.12);
+}
+
+.time {
+  min-width: 26px;
+  font-variant-numeric: tabular-nums;
+  color: #f2f3f7;
+}
+
+.hint {
+  font-size: 10px;
+  color: #a2a6b4;
+}
+
+.dots {
+  display: flex;
+  gap: 4px;
+}
+
+.dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #b9a9ff;
+  animation: wave 1.2s ease-in-out infinite;
+}
+.dots i:nth-child(2) { animation-delay: 0.15s; }
+.dots i:nth-child(3) { animation-delay: 0.3s; }
+
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.done .icon { stroke: #5fd08a; }
+.error .icon { stroke: #ff7a85; }
+.cancelled .icon { stroke: #a2a6b4; }
+.cancelled { color: #c4c7d2; }
+
+body[data-state="done"] .done .icon {
+  animation: pop 0.25s ease-out;
+}
+
+.message {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+
+@keyframes wave {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill, .view { transition: none; }
+  .rec-dot, .dots i, .icon { animation: none !important; }
+  .dots i { opacity: 0.8; }
+}

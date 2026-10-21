@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Murmur settings</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg>
+      <span>Murmur</span>
+    </div>
+    <nav aria-label="Settings sections">
+      <a href="#general">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h8M18 7h2M4 17h2M12 17h8"/><circle cx="15" cy="7" r="2.5"/><circle cx="9" cy="17" r="2.5"/></svg>
+        General
+      </a>
+      <a href="#cleanup">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4l1.8 5.2L17 11l-5.2 1.8L10 18l-1.8-5.2L3 11l5.2-1.8zM18 15v5M15.5 17.5h5"/></svg>
+        AI Cleanup
+      </a>
+      <a href="#engine">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>
+        Engine
+      </a>
+      <a href="#history">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+        History
+      </a>
+    </nav>
+  </aside>
+
+  <div class="content">
+    <div class="saved" id="saved" role="status" aria-live="polite"></div>
+    <main id="main">
+
+      <section data-section="general" hidden>
+        <h1>General</h1>
+
+        <div class="group" id="status-card">
+          <div class="row" id="stt-row">
+            <span class="state" aria-hidden="true"></span>
+            <div class="row-text"><h3>Speech recognition</h3><p></p></div>
+            <span class="state-label"></span>
+          </div>
+          <div class="row" id="llm-row">
+            <span class="state" aria-hidden="true"></span>
+            <div class="row-text"><h3>Text cleanup</h3><p></p></div>
+            <span class="state-label"></span>
+          </div>
+          <div class="downloads" id="downloads" hidden>
+            <div class="row">
+              <div class="row-text">
+                <h3>Models are missing</h3>
+                <p>Murmur needs to download its speech and cleanup models before it can transcribe.</p>
+              </div>
+              <button class="btn primary" id="download-btn" type="button">Download models</button>
+            </div>
+            <ul class="progress-list" id="progress-list"></ul>
+          </div>
+        </div>
+
+        <h2>Shortcut</h2>
+        <div class="group hotkey">
+          <div class="hotkey-main">
+            <div class="caps" id="caps" aria-live="polite"></div>
+            <button class="btn" id="hotkey-btn" type="button">Change</button>
+          </div>
+          <p class="help">Hold to talk, tap to toggle hands-free, Esc to cancel.</p>
+          <p class="field-error" id="hotkey-error" role="alert" hidden></p>
+        </div>
+
+        <h2>Dictation</h2>
+        <div class="group">
+          <div class="row">
+            <div class="row-text"><h3><label for="mic">Microphone</label></h3></div>
+            <select id="mic"></select>
+          </div>
+          <div class="row">
+            <div class="row-text"><h3><label for="paste-mode">After dictation</label></h3></div>
+            <select id="paste-mode">
+              <option value="paste">Paste into active app</option>
+              <option value="clipboard">Copy to clipboard only</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="row-text"><h3><label for="sounds">Sounds</label></h3><p>Play a short tone when recording starts and stops.</p></div>
+            <input class="switch" type="checkbox" role="switch" id="sounds">
+          </div>
+          <div class="row">
+            <div class="row-text"><h3><label for="launch">Launch at login</label></h3><p>Start Murmur in the background when you sign in.</p></div>
+            <input class="switch" type="checkbox" role="switch" id="launch">
+          </div>
+        </div>
+      </section>
+
+      <section data-section="cleanup" hidden>
+        <h1>AI Cleanup</h1>
+
+        <div class="group">
+          <div class="row">
+            <div class="row-text">
+              <h3><label for="cleanup-toggle">Clean up with AI</label></h3>
+              <p>Removes filler words and false starts, and fixes punctuation, before Murmur pastes your text.</p>
+            </div>
+            <input class="switch" type="checkbox" role="switch" id="cleanup-toggle">
+          </div>
+          <div class="example">
+            <div>
+              <span class="tag">You said</span>
+              <p class="before">Mm, lets do this first and then I don't now, put these things here to to mhm be able to have good</p>
+            </div>
+            <div>
+              <span class="tag accent">Murmur writes</span>
+              <p>Let's do this first, then put these things here so we can have this set up.</p>
+            </div>
+          </div>
+        </div>
+
+        <h2>Vocabulary</h2>
+        <div class="group pad">
+          <p class="help">Names and terms that the cleanup should spell exactly as you type them here.</p>
+          <div class="chips" id="vocab-chips">
+            <input type="text" id="vocab-input" placeholder="Type a word, press Enter" aria-label="Add vocabulary word" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+
+        <h2>Replacements</h2>
+        <div class="group pad">
+          <p class="help">Always swap a spoken phrase for fixed text, such as an address or a code snippet.</p>
+          <div id="replacements"></div>
+          <button class="btn" id="add-replacement" type="button">Add replacement</button>
+        </div>
+      </section>
+
+      <section data-section="engine" hidden>
+        <h1>Engine</h1>
+
+        <div class="group">
+          <div class="row">
+            <div class="row-text">
+              <h3 id="stt-device-label">Speech recognition device</h3>
+              <p id="stt-active"></p>
+            </div>
+            <div class="segmented" role="radiogroup" aria-labelledby="stt-device-label">
+              <label><input type="radio" name="stt-device" value="gpu"><span>GPU</span></label>
+              <label><input type="radio" name="stt-device" value="cpu"><span>CPU</span></label>
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <h3>Cleanup model device</h3>
+              <p id="llm-active"></p>
+            </div>
+          </div>
+        </div>
+
+        <h2>Support</h2>
+        <div class="group">
+          <div class="row">
+            <div class="row-text"><h3>Log folder</h3><p>Open the folder with the Murmur log files.</p></div>
+            <button class="btn" id="open-logs" type="button">Open log folder</button>
+          </div>
+          <div class="row">
+            <div class="row-text"><h3>Version</h3></div>
+            <span class="value" id="version"></span>
+          </div>
+        </div>
+      </section>
+
+      <section data-section="history" hidden>
+        <h1>History</h1>
+
+        <div class="toolbar">
+          <input type="search" id="history-search" placeholder="Search dictations" aria-label="Search dictations" autocomplete="off">
+          <div id="clear-area"></div>
+        </div>
+        <ul class="entries" id="entries"></ul>
+        <div class="empty" id="history-empty" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4"/></svg>
+          <h3></h3>
+          <p></p>
+        </div>
+      </section>
+
+    </main>
+    <div class="toast" id="toast" role="alert" hidden></div>
+  </div>
+</div>
+<script src="mock.js"></script>
+<script src="settings.js"></script>
+</body>
+</html>
