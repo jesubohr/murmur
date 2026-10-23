@@ -126,6 +126,14 @@
           <div class="chips" id="vocab-chips">
             <input type="text" id="vocab-input" placeholder="Type a word, press Enter" aria-label="Add vocabulary word" autocomplete="off" spellcheck="false">
           </div>
+          <button class="btn small" id="import-toggle" type="button" aria-expanded="false" aria-controls="import-panel">Find terms in your text</button>
+          <div id="import-panel" hidden>
+            <p class="help">Paste text you wrote, such as emails or notes, or open a text file. Murmur suggests names and terms from it. It does not keep the text.</p>
+            <textarea id="import-text" rows="5" aria-label="Text to find terms in" spellcheck="false"></textarea>
+            <button class="btn small" id="import-file" type="button">Open file</button>
+            <input type="file" id="import-file-input" accept=".txt,.md,.srt,.vtt" hidden>
+            <div class="chips" id="suggestions" aria-live="polite"></div>
+          </div>
         </div>
 
         <h2>Replacements</h2>

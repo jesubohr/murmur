@@ -238,6 +238,7 @@
       remove.setAttribute("aria-label", `Remove ${term}`);
       chipBox.insertBefore(el("span", { className: "chip" }, term, remove), vocabInput);
     });
+    renderSuggestions();
   }
 
   vocabInput.onkeydown = (e) => {
@@ -249,6 +250,70 @@
     draft.vocabulary.push(term);
     renderChips();
     change({});
+  };
+
+  /* Find terms in text */
+
+  const importPanel = $("#import-panel");
+  const importToggle = $("#import-toggle");
+  const importText = $("#import-text");
+  const suggestionBox = $("#suggestions");
+
+  function startsSentence(text, index) {
+    let i = index - 1;
+    while (i >= 0 && /[ \t\r"'(\[*•-]/.test(text[i])) i--;
+    return i < 0 || ".!?¿¡\n".includes(text[i]);
+  }
+
+  // Names (capitalized inside a sentence), acronyms, mixed case (PgBouncer) and letters with digits (K8s).
+  function findTerms(text, known) {
+    const counts = new Map();
+    for (const match of text.matchAll(/[\p{L}\p{N}]+(?:[._-][\p{L}\p{N}]+)*[+#]*/gu)) {
+      const word = match[0];
+      const key = word.toLowerCase();
+      if (word.length < 2 || known.has(key) || !/\p{L}/u.test(word)) continue;
+      const name = /^\p{Lu}/u.test(word) && !startsSentence(text, match.index);
+      const unusual = /\p{Ll}\p{Lu}|^\p{Lu}[\p{Lu}\p{N}]+$|\p{N}/u.test(word);
+      if (!name && !unusual) continue;
+      const entry = counts.get(key) ?? { word, count: 0 };
+      entry.count++;
+      counts.set(key, entry);
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 20).map((entry) => entry.word);
+  }
+
+  function renderSuggestions() {
+    const known = new Set(draft.vocabulary.map((term) => term.toLowerCase()));
+    const terms = importText.value ? findTerms(importText.value, known) : [];
+    if (!terms.length) {
+      suggestionBox.replaceChildren(el("span", { className: "none", textContent: importText.value ? "No new terms found." : "" }));
+      return;
+    }
+    suggestionBox.replaceChildren(...terms.map((term) => el("button", {
+      className: "chip suggestion",
+      type: "button",
+      textContent: `+ ${term}`,
+      onclick: () => {
+        draft.vocabulary.push(term);
+        renderChips();
+        change({});
+      },
+    })));
+  }
+
+  importToggle.onclick = () => {
+    importPanel.hidden = !importPanel.hidden;
+    importToggle.setAttribute("aria-expanded", String(!importPanel.hidden));
+    if (!importPanel.hidden) importText.focus();
+  };
+  importText.oninput = renderSuggestions;
+  $("#import-file").onclick = () => $("#import-file-input").click();
+  $("#import-file-input").onchange = async (e) => {
+    const [file] = e.target.files;
+    e.target.value = "";
+    if (!file) return;
+    importText.value = await file.text();
+    renderSuggestions();
   };
 
   /* Replacements */

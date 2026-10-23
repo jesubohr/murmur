@@ -69,7 +69,7 @@ Open Settings from the tray icon.
 - **Microphone**: the system default or a chosen input device.
 - **STT device**: GPU or CPU. STT means speech to text, the speech recognition step. The GPU option uses DirectML on the discrete GPU. A discrete GPU is a separate graphics card. DirectML is a Microsoft technology that runs models on the GPU.
 - **AI cleanup**: on or off. You can also change this in the tray menu.
-- **Vocabulary**: names and terms that the language model must spell exactly.
+- **Vocabulary**: names and terms that the language model must spell exactly. "Find terms in your text" suggests terms from text you paste or open (`.txt`, `.md`, `.srt`, `.vtt`). Murmur does not keep that text.
 - **Replacements**: exact text replacements that Murmur applies after the cleanup.
 - **Paste mode**: paste (Murmur presses Ctrl+V, then restores your clipboard) or clipboard only.
 - **Sounds**: start and stop beeps.
