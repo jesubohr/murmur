@@ -6,7 +6,7 @@ Everything runs on your own computer. Your voice and your text never leave it. M
 
 ## Getting started 🚀
 
-1. Build and install Murmur. Follow the [build instructions](#rebuild) below.
+1. Download `Murmur_x.y.z_x64-setup.exe` from the [Releases page](https://github.com/jesubohr/murmur/releases/latest) and run it. The installer is not signed, so Windows can show "Windows protected your PC". Click **More info**, then **Run anyway**. You do not need administrator rights.
 2. Start Murmur. It opens in the system tray (the small icons near the clock).
 3. On the first start, Murmur downloads its models. Models are files that let AI software do a task, such as recognizing speech. Murmur needs two models, and the download is about 3.2 GB. After the download, you can dictate without an internet connection.
 4. Click into any text box, such as an email, a chat, or a document.
@@ -109,6 +109,12 @@ npx tauri build          # NSIS installer: src-tauri/target/release/bundle/nsis/
 ```
 
 Install per user: `Murmur_0.1.0_x64-setup.exe /S`. The app goes to `%LOCALAPPDATA%\Murmur`.
+
+## Release
+
+1. Set the same new version in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
+2. Commit, then push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
+3. `.github/workflows/release.yml` builds the installer and attaches it to a draft release. Write the notes and publish the draft on GitHub.
 
 `src-tauri/resources/llama` holds `llama-server.exe` and its DLLs (llama.cpp b11741, Vulkan). `src-tauri/dml/DirectML.dll` (version 1.15.4) is shipped next to `murmur.exe`; the system copy of DirectML is too old. Both folders are not in the repository. `tools/fetch_binaries.ps1` downloads them and checks their SHA256.
 
