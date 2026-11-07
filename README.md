@@ -1,5 +1,7 @@
 # Murmur 🎙️
 
+https://github.com/user-attachments/assets/92e044a7-1013-4eb3-a006-fe1544a38dc2
+
 <div align="center">Murmur types for you. Hold a key, speak, and let go. Murmur turns your speech into clean text and pastes it into the app you are using.</div>
 <div align="center">Everything runs on your own computer. Your voice and your text never leave it. Murmur is for Windows 10.</div>
 
