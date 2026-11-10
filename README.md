@@ -34,6 +34,18 @@ A small overlay at the bottom of the screen shows what Murmur is doing:
 
 Murmur ignores clips that are shorter than 0.3 seconds or have no sound.
 
+## Transcribe an audio file 📄
+
+You can also get text from a recording, such as a meeting or a voice memo.
+
+1. Open Settings and go to **Transcribe**.
+2. Choose if Murmur cleans up the text. Turn off **Clean up with AI** to keep the exact words from the speech recognition.
+3. Click **Choose audio file**, or drop a file on the window. Murmur reads MP3, WAV, M4A, AAC, MP4, FLAC, and OGG (Vorbis) files. This only selects the file. Click **Change** or drop another file to select a different one.
+4. Click **Transcribe**. To stop, click **Cancel**. Murmur stops after a few seconds and keeps the file selected.
+5. When Murmur is done, copy the text or save it as a `.txt` file. A short message confirms the copy or the save. The result is also in the History. The file stays selected, so you can click **Transcribe** again, for example with **Clean up with AI** turned off.
+
+Murmur splits long files into parts, so a long recording can take some minutes. While Murmur transcribes a file, the hotkey does not record.
+
 ## How it works 🧠
 
 Murmur works in three steps:
@@ -75,7 +87,7 @@ Open Settings from the tray icon.
 - **Paste mode**: paste (Murmur presses Ctrl+V, then restores your clipboard) or clipboard only.
 - **Sounds**: start and stop beeps.
 - **Launch at login**: off by default.
-- **History**: the last results with a copy button, the raw text, and the timings.
+- **History**: the last results with a copy button, the raw text, and the timings. Delete an item with the X button. For 10 seconds you can restore it with **Undo** or Ctrl+Z.
 
 ## Where Murmur keeps its files 📁
 
@@ -128,11 +140,11 @@ murmur.exe --test clip1.wav "typed transcript" [--stt cpu|gpu] [--no-llm] [--out
 murmur.exe --bench clip.wav [--out result.json]     # encoder on CPU and on the GPU
 ```
 
-`--test` prints raw text, cleaned text and timings as JSON. Log lines go to stderr in these modes. Arguments that are not WAV files are used as typed transcripts and skip speech to text. `tools/run_tests.sh` runs all clips in `tests/audio` (made by `tests/make_audio.ps1` with Windows SAPI). `tools/text_tests.sh` runs typed transcripts for prompt work. `tools/e2e.ps1` presses the hotkey and reads what arrives in Notepad. It needs `MURMUR_FAKE_WAV=<wav>` in the environment of the running Murmur, which replaces the microphone audio.
+`--test` prints raw text, cleaned text and timings as JSON. Log lines go to stderr in these modes. `--test` accepts any audio file that Murmur can read. Arguments that are not files are used as typed transcripts and skip speech to text. `tools/run_tests.sh` runs all clips in `tests/audio` (made by `tests/make_audio.ps1` with Windows SAPI). `tools/text_tests.sh` runs typed transcripts for prompt work. `tools/e2e.ps1` presses the hotkey and reads what arrives in Notepad. It needs `MURMUR_FAKE_WAV=<wav>` in the environment of the running Murmur, which replaces the microphone audio.
 
 ## Design notes
 
-- **STT**: `ort` 2.0.0-rc.12 with the DirectML provider on the DXGI adapter with the most dedicated memory (the RX 6600). The mel preprocessor and the small decoder run on the CPU. DirectML recompiles the encoder for every new input length and keeps only one compiled shape, so on the GPU the encoder always gets 1024 frames (padded), and longer audio is split at the quietest point into chunks of at most 9.5 s.
+- **STT**: `ort` 2.0.0-rc.12 with the DirectML provider on the DXGI adapter with the most dedicated memory (the RX 6600). The mel preprocessor and the small decoder run on the CPU. DirectML recompiles the encoder for every new input length and keeps only one compiled shape, so on the GPU the encoder always gets 1024 frames (padded), and longer audio is split at the quietest point into chunks of at most 9.5 s. On the CPU, audio longer than 60 s is split the same way. Audio files are decoded with `symphonia`. The cleanup gets long transcripts in parts of at most 1200 characters, because the LLM context is 4096 tokens.
 - **LLM**: `llama-server.exe` on `127.0.0.1:8178`, `-ngl 99 -c 4096 -np 1`, device chosen by matching the DXGI adapter name against `--list-devices`. It runs without a console window inside a Windows Job Object with `KILL_ON_JOB_CLOSE`, so it never survives Murmur, even after a crash.
 - **Start**: `main` starts the logger first. When the models exist and no other Murmur runs (named mutex), the models load before Tauri builds its windows. The Settings window is created when it is first opened. The saved encoder graph and the saved LLM prompt (llama-server `--slot-save-path`) make later starts faster.
 - **Threads**: the hotkey handler only sends messages. One worker thread owns the recording state machine; STT and LLM run on separate threads.
@@ -149,9 +161,14 @@ Commands (call with `window.__TAURI__.core.invoke`, arguments in camelCase):
 - `list_input_devices() -> string[]`
 - `get_history({ limit }) -> HistoryEntry[]` (newest first)
 - `clear_history()`
+- `delete_history({ id })` (removes one entry; error string when the file cannot be written)
 - `set_hotkey_capture({ active })` (while true, the global hotkey is unregistered so the UI can record a key combination)
 - `download_models()` (progress through events)
 - `open_log_folder()`
+- `pick_audio_file() -> string|null` (native file dialog, audio files only)
+- `save_text_file({ name, text }) -> string|null` (native Save dialog; returns the saved file name, or null when cancelled)
+- `transcribe_file({ path, cleanup }) -> HistoryEntry` (`cleanup` applies to this file only; error string when the file has no speech or cannot be read; rejects with `"Cancelled"` after `cancel_transcription()`, and then adds nothing to the history)
+- `cancel_transcription()` (stops the running `transcribe_file` at its next check, which takes a few seconds at most)
 
 Types (camelCase):
 
@@ -171,6 +188,7 @@ Events (to all windows):
 - `download-progress`: `{ file, downloaded, total, done, error }` (`done` is true when one file is complete; all models are present when `status-changed` reports `modelsMissing: false`)
 - `history-added`: `HistoryEntry`
 - `settings-changed`: `Settings` (for example when the tray toggles AI cleanup)
+- `file-progress`: `{ stage: "transcribing"|"polishing", progress }` (`progress` is 0 to 1, only during `transcribe_file`)
 
 ## Third-party components
 

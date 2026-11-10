@@ -94,6 +94,38 @@
     }, 250);
   }
 
+  let cancelRequested = false;
+
+  function simulateTranscription(cleanup) {
+    const stages = cleanup ? ["transcribing", "polishing"] : ["transcribing"];
+    const ticksPerStage = 10;
+    cancelRequested = false;
+    return new Promise((resolve, reject) => {
+      let tick = 0;
+      const timer = setInterval(() => {
+        const stage = stages[Math.floor(tick / ticksPerStage)];
+        tick += 1;
+        emit("file-progress", { stage, progress: ((tick - 1) % ticksPerStage + 1) / ticksPerStage });
+        if (cancelRequested) {
+          clearInterval(timer);
+          return reject("Cancelled");
+        }
+        if (tick < stages.length * ticksPerStage) return;
+        clearInterval(timer);
+        const raw = "so um this is the interview recording where we talk about the the launch plan";
+        const entry = {
+          id: String(Date.now()), timestamp: new Date().toISOString(),
+          raw,
+          cleaned: cleanup ? "This is the interview recording where we talk about the launch plan." : raw,
+          sttMs: 1000, llmMs: cleanup ? 1000 : 0, totalMs: tick * 100, cleanupUsed: cleanup,
+        };
+        history.unshift(entry);
+        emit("history-added", entry);
+        resolve(entry);
+      }, 100);
+    });
+  }
+
   const commands = {
     get_settings: () => settings,
     save_settings: ({ settings: next }) => {
@@ -106,9 +138,14 @@
     list_input_devices: () => devices,
     get_history: ({ limit }) => history.slice(0, limit),
     clear_history: () => { history = []; },
+    delete_history: ({ id }) => { history = history.filter((e) => e.id !== id); },
     set_hotkey_capture: () => {},
     download_models: () => simulateDownload(),
     open_log_folder: () => {},
+    save_text_file: ({ name }) => name,
+    pick_audio_file: () => "C:\\Users\\me\\Music\\interview.mp3",
+    transcribe_file: ({ cleanup }) => simulateTranscription(cleanup),
+    cancel_transcription: () => { cancelRequested = true; },
   };
 
   window.__TAURI__ = {

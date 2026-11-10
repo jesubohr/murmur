@@ -6,6 +6,8 @@ use cpal::{
     FromSample, Sample, SizedSample, Stream,
 };
 use std::{
+    fs::File,
+    io::ErrorKind,
     path::Path,
     sync::{
         mpsc::{self, Sender},
@@ -14,6 +16,7 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+use symphonia::core::{audio::SampleBuffer, codecs::CODEC_TYPE_NULL, errors::Error as SymphoniaError, io::MediaSourceStream, probe::Hint};
 
 pub const SAMPLE_RATE: u32 = 16_000;
 const MIN_SAMPLES: usize = SAMPLE_RATE as usize * 3 / 10;
@@ -69,9 +72,9 @@ impl Recording {
     pub fn finish(self) -> Vec<f32> {
         let _ = self.stop.send(());
         let samples = self.thread.join().unwrap_or_default();
-        // Test hook: replaces the microphone audio with a WAV file.
+        // Test hook: replaces the microphone audio with an audio file.
         match std::env::var("MURMUR_FAKE_WAV") {
-            Ok(path) => read_wav(Path::new(&path)).unwrap_or(samples),
+            Ok(path) => read_file(Path::new(&path)).unwrap_or(samples),
             Err(_) => samples,
         }
     }
@@ -135,33 +138,100 @@ where
 }
 
 /// Averages the source samples that fall into each output sample. Good enough for speech.
-fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
-    if from == to {
-        return input.to_vec();
-    }
-    let ratio = from as f64 / to as f64;
-    let count = (input.len() as f64 / ratio) as usize;
-    (0..count)
-        .map(|i| {
-            let start = (i as f64 * ratio) as usize;
-            let end = (((i + 1) as f64 * ratio) as usize).clamp(start + 1, input.len());
-            input[start..end].iter().sum::<f32>() / (end - start) as f32
-        })
-        .collect()
+struct Resampler {
+    ratio: f64,
+    /// Source samples pushed so far.
+    seen: usize,
+    /// Index of the output sample that is being built.
+    index: usize,
+    sum: f32,
+    count: usize,
+    last: f32,
 }
 
-/// Reads any WAV file as 16 kHz mono.
-pub fn read_wav(path: &Path) -> Result<Vec<f32>> {
-    let mut reader = hound::WavReader::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let spec = reader.spec();
-    let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
-        hound::SampleFormat::Int => {
-            let scale = (1i64 << (spec.bits_per_sample - 1)) as f32;
-            reader.samples::<i32>().map(|s| s.map(|v| v as f32 / scale)).collect::<Result<_, _>>()?
+impl Resampler {
+    fn new(from: u32, to: u32) -> Self {
+        Self { ratio: from as f64 / to as f64, seen: 0, index: 0, sum: 0.0, count: 0, last: 0.0 }
+    }
+
+    /// Appends the output samples that this source sample completes.
+    fn push(&mut self, sample: f32, out: &mut Vec<f32>) {
+        self.sum += sample;
+        self.count += 1;
+        self.seen += 1;
+        self.last = sample;
+        loop {
+            let start = (self.index as f64 * self.ratio) as usize;
+            let end = (((self.index + 1) as f64 * self.ratio) as usize).max(start + 1);
+            if self.seen < end {
+                break;
+            }
+            // Upsampling repeats a source sample, so a window can have no new samples.
+            out.push(if self.count == 0 { self.last } else { self.sum / self.count as f32 });
+            self.sum = 0.0;
+            self.count = 0;
+            self.index += 1;
         }
-    };
-    let channels = spec.channels as usize;
-    let mono: Vec<f32> = samples.chunks(channels).map(|c| c.iter().sum::<f32>() / channels as f32).collect();
-    Ok(resample(&mono, spec.sample_rate, SAMPLE_RATE))
+    }
+}
+
+fn resample(input: &[f32], from: u32, to: u32) -> Vec<f32> {
+    let mut resampler = Resampler::new(from, to);
+    let mut out = Vec::with_capacity((input.len() as f64 / resampler.ratio) as usize);
+    for &sample in input {
+        resampler.push(sample, &mut out);
+    }
+    out
+}
+
+/// Decodes an audio file (mp3, wav, m4a, aac, flac, ogg) into 16 kHz mono samples.
+pub fn read_file(path: &Path) -> Result<Vec<f32>> {
+    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let source = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(extension);
+    }
+    let probed = symphonia::default::get_probe().format(&hint, source, &Default::default(), &Default::default())?;
+    let mut format = probed.format;
+    // Video files list the video track too, which has no codec that symphonia knows.
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .ok_or_else(|| anyhow!("no audio track"))?;
+    let track_id = track.id;
+    let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
+
+    let mut out = vec![];
+    let mut resampler = None;
+    let mut buffer: Option<SampleBuffer<f32>> = None;
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(SymphoniaError::IoError(e)) if e.kind() == ErrorKind::UnexpectedEof => break,
+            Err(SymphoniaError::ResetRequired) => break,
+            Err(error) => return Err(error.into()),
+        };
+        if packet.track_id() != track_id {
+            continue;
+        }
+        let decoded = match decoder.decode(&packet) {
+            Ok(decoded) => decoded,
+            Err(SymphoniaError::DecodeError(_)) => continue,
+            Err(error) => return Err(error.into()),
+        };
+        let spec = *decoded.spec();
+        let samples = match &mut buffer {
+            Some(buffer) if buffer.capacity() >= decoded.capacity() * spec.channels.count() => buffer,
+            slot => slot.insert(SampleBuffer::new(decoded.capacity() as u64, spec)),
+        };
+        samples.copy_interleaved_ref(decoded);
+        let resampler = resampler.get_or_insert_with(|| Resampler::new(spec.rate, SAMPLE_RATE));
+        let channels = spec.channels.count();
+        for frame in samples.samples().chunks(channels) {
+            resampler.push(frame.iter().sum::<f32>() / channels as f32, &mut out);
+        }
+    }
+    Ok(out)
 }

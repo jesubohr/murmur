@@ -54,6 +54,16 @@
     toastTimer = setTimeout(() => (toast.hidden = true), 6000);
   }
 
+  let noticeTimer = 0;
+  function notify(message) {
+    const notice = $("#notice");
+    notice.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+    notice.append(message);
+    notice.classList.add("visible");
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => notice.classList.remove("visible"), 2200);
+  }
+
   /* Saving */
 
   function change(patch, delay = 0) {
@@ -467,6 +477,9 @@
     toggle.setAttribute("aria-label", "Show details");
     toggle.setAttribute("aria-expanded", String(open));
 
+    const remove = el("button", { className: "icon-btn", type: "button", onclick: () => deleteEntry(entry) }, closeIcon());
+    remove.setAttribute("aria-label", "Delete transcript");
+
     const timings = el("dl", { className: "timings" });
     const timing = (name, value) => timings.append(el("div", {}, el("dt", { textContent: name }), el("dd", { textContent: value })));
     timing("Speech to text", formatMs(entry.sttMs));
@@ -479,7 +492,7 @@
     const root = el("li", { className: open ? "entry open" : "entry" },
       el("p", { className: "entry-text", textContent: entry.cleaned }),
       meta,
-      el("div", { className: "entry-actions" }, copy, toggle),
+      el("div", { className: "entry-actions" }, copy, toggle, remove),
       detail);
 
     toggle.onclick = () => {
@@ -530,9 +543,65 @@
     if (!value) $("#clear-area button").focus();
   }
 
+  /* Delete with undo: the file changes only when the 10 seconds end. */
+
+  const undoBox = $("#undo");
+  let pendingDelete = null; // { entry, timer }
+
+  function takePending() {
+    const { entry, timer } = pendingDelete;
+    clearTimeout(timer);
+    pendingDelete = null;
+    undoBox.hidden = true;
+    return entry;
+  }
+
+  function restoreEntry(entry) {
+    const index = entries.findIndex((e) => Number(e.id) < Number(entry.id));
+    entries.splice(index < 0 ? entries.length : index, 0, entry);
+    renderHistory();
+  }
+
+  function deleteEntry(entry) {
+    commitDelete();
+    entries = entries.filter((e) => e.id !== entry.id);
+    expanded.delete(entry.id);
+    renderHistory();
+    pendingDelete = { entry, timer: setTimeout(commitDelete, 10000) };
+    $("#undo-text").textContent = "Transcript deleted";
+    undoBox.hidden = false;
+    undoBox.classList.remove("counting");
+    void undoBox.offsetWidth;
+    undoBox.classList.add("counting");
+  }
+
+  async function commitDelete() {
+    if (!pendingDelete) return;
+    const entry = takePending();
+    try {
+      await invoke("delete_history", { id: entry.id });
+    } catch (error) {
+      fail(`Could not delete the transcript. ${error}`);
+      restoreEntry(entry);
+    }
+  }
+
+  function undoDelete() {
+    if (pendingDelete) restoreEntry(takePending());
+  }
+
+  $("#undo-btn").onclick = undoDelete;
+  document.addEventListener("keydown", (e) => {
+    if (!pendingDelete || !e.ctrlKey || e.shiftKey || e.altKey || e.key.toLowerCase() !== "z") return;
+    if (e.target.closest("input, textarea")) return;
+    e.preventDefault();
+    undoDelete();
+  });
+
   async function clearHistory() {
     try {
       await invoke("clear_history");
+      if (pendingDelete) takePending();
       entries = [];
       expanded.clear();
       confirmingClear = false;
@@ -550,6 +619,140 @@
   setInterval(() => {
     list.querySelectorAll("time").forEach((t) => (t.textContent = timeAgo(t.dateTime)));
   }, 30000);
+
+  /* Transcribe file */
+
+  const fileTypes = ["mp3", "wav", "m4a", "aac", "mp4", "flac", "ogg", "oga"];
+  const fileCleanup = $("#file-cleanup");
+  const dropZone = $("#drop-zone");
+  const fileCard = $("#file-card");
+  const fileChange = $("#file-change");
+  const filePlay = $("#file-play");
+  const fileCancel = $("#file-cancel");
+  const fileProgress = $("#file-progress");
+  const fileStatus = $("#file-status");
+  const fileResult = $("#file-result");
+  const resultToggle = $("#result-toggle");
+  let selected = ""; // path of the chosen file
+  let busy = false;
+  let result; // { entry, name } of the last transcription
+
+  const baseName = (path) => path.split(/[\\/]/).pop();
+
+  function renderFile() {
+    dropZone.hidden = Boolean(selected);
+    fileCard.hidden = !selected;
+    filePlay.hidden = busy;
+    fileCancel.hidden = !busy;
+    fileProgress.hidden = !busy;
+    fileChange.disabled = busy;
+    fileCleanup.disabled = busy;
+  }
+
+  function selectFile(path) {
+    if (busy) return;
+    if (!fileTypes.includes(path.split(".").pop().toLowerCase())) return fail("Murmur cannot read this file type.");
+    selected = path;
+    $("#file-name").textContent = baseName(path);
+    $("#file-name").title = path;
+    fileResult.hidden = true;
+    renderFile();
+  }
+
+  function showFileProgress(stage, progress) {
+    fileStatus.textContent = `${stage === "polishing" ? "Cleaning up" : "Transcribing"} ${Math.round(progress * 100)}%`;
+    $("#file-fill").style.transform = `scaleX(${progress})`;
+  }
+
+  function showResult(entry, name) {
+    result = { entry, name };
+    $("#result-text").textContent = entry.cleaned;
+    $("#result-original").textContent = entry.raw;
+    const hasOriginal = entry.cleanupUsed && entry.raw !== entry.cleaned;
+    resultToggle.hidden = !hasOriginal;
+    setOriginalOpen(false);
+    fileResult.hidden = false;
+  }
+
+  function setOriginalOpen(open) {
+    $("#result-original").hidden = !open;
+    resultToggle.textContent = open ? "Hide original" : "Show original";
+    resultToggle.setAttribute("aria-expanded", String(open));
+  }
+
+  async function transcribeFile() {
+    if (busy || !selected) return;
+    const path = selected;
+    busy = true;
+    fileCancel.disabled = false;
+    fileCancel.textContent = "Cancel";
+    fileResult.hidden = true;
+    showFileProgress("transcribing", 0);
+    renderFile();
+    try {
+      showResult(await invoke("transcribe_file", { path, cleanup: fileCleanup.checked }), baseName(path));
+    } catch (error) {
+      if (String(error) === "Cancelled") notify("Transcription canceled");
+      else fail(`Could not transcribe the file. ${error}`);
+    } finally {
+      busy = false;
+      renderFile();
+    }
+  }
+
+  async function pickFile() {
+    try {
+      const path = await invoke("pick_audio_file");
+      if (path) selectFile(path);
+    } catch (error) {
+      fail(`Could not open the file picker. ${error}`);
+    }
+  }
+
+  $("#file-pick").onclick = pickFile;
+  fileChange.onclick = pickFile;
+  filePlay.onclick = transcribeFile;
+  fileCancel.onclick = () => {
+    fileCancel.disabled = true;
+    fileCancel.textContent = "Canceling";
+    invoke("cancel_transcription").catch((error) => fail(`Could not cancel. ${error}`));
+  };
+
+  $("#result-copy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(result.entry.cleaned);
+      notify("Copied to clipboard");
+    } catch {
+      fail("Could not copy to the clipboard.");
+    }
+  };
+
+  $("#result-save").onclick = async () => {
+    try {
+      const name = `${result.name.replace(/\.[^.]+$/, "")}.txt`;
+      const saved = await invoke("save_text_file", { name, text: result.entry.cleaned });
+      if (saved) notify(`Saved as ${saved}`);
+    } catch (error) {
+      fail(`Could not save the file. ${error}`);
+    }
+  };
+
+  resultToggle.onclick = () => setOriginalOpen($("#result-original").hidden);
+
+  listen("file-progress", ({ payload }) => {
+    if (busy) showFileProgress(payload.stage, payload.progress);
+  });
+  const clearDragging = () => [dropZone, fileCard].forEach((box) => box.classList.remove("dragging"));
+  listen("tauri://drag-enter", () => {
+    if (!busy) (selected ? fileCard : dropZone).classList.add("dragging");
+  });
+  listen("tauri://drag-leave", clearDragging);
+  listen("tauri://drag-drop", ({ payload }) => {
+    clearDragging();
+    if (busy || !payload.paths.length) return;
+    location.hash = "#transcribe";
+    selectFile(payload.paths[0]);
+  });
 
   /* Startup */
 
@@ -579,6 +782,7 @@
         invoke("get_history", { limit: 200 }),
       ]);
       apply(initialSettings);
+      fileCleanup.checked = initialSettings.cleanupEnabled;
       renderStatus();
     } catch (error) {
       fail(`Could not load Murmur. ${error}`);

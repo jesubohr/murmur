@@ -8,17 +8,17 @@ use crate::{
     settings::{self, HistoryEntry, Settings},
     stt::Stt,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 use serde_json::json;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
-        Arc, Mutex, OnceLock, RwLock,
+        Arc, Mutex, OnceLock, RwLock, TryLockError,
     },
     time::{Duration, Instant},
 };
@@ -28,6 +28,7 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use windows::{
     core::w,
@@ -76,6 +77,7 @@ pub struct App {
     overlay_generation: AtomicU64,
     hotkey_capture: AtomicBool,
     downloading: AtomicBool,
+    cancel_file: AtomicBool,
     llama_dir: PathBuf,
     /// Set in `setup`. The engines can start earlier and then only update the status without events.
     handle: OnceLock<AppHandle>,
@@ -105,6 +107,7 @@ pub fn run(llama_dir: PathBuf) -> Result<()> {
         overlay_generation: AtomicU64::new(0),
         hotkey_capture: AtomicBool::new(false),
         downloading: AtomicBool::new(false),
+        cancel_file: AtomicBool::new(false),
         llama_dir,
         handle: OnceLock::new(),
     });
@@ -129,6 +132,7 @@ pub fn run(llama_dir: PathBuf) -> Result<()> {
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_dialog::init())
         .manage(app.clone())
         .invoke_handler(tauri::generate_handler![
             get_settings,
@@ -137,9 +141,14 @@ pub fn run(llama_dir: PathBuf) -> Result<()> {
             list_input_devices,
             get_history,
             clear_history,
+            delete_history,
             set_hotkey_capture,
             download_models,
-            open_log_folder
+            open_log_folder,
+            pick_audio_file,
+            save_text_file,
+            transcribe_file,
+            cancel_transcription
         ])
         .setup(move |tauri_app| {
             let handle = tauri_app.handle().clone();
@@ -352,8 +361,14 @@ fn hotkey_worker(app: AppHandle, state: Arc<App>, inbox: Receiver<Msg>) {
 }
 
 fn start_recording(app: &AppHandle, state: &Arc<App>) -> Phase {
-    if state.stt.lock().map(|stt| stt.is_none()).unwrap_or(true) {
-        show_error(app, state, "Speech model is still loading");
+    // A file transcription holds the lock for minutes, so never wait for it here.
+    let problem = match state.stt.try_lock() {
+        Ok(stt) if stt.is_some() => None,
+        Err(TryLockError::WouldBlock) => Some("Murmur is transcribing a file"),
+        _ => Some("Speech model is still loading"),
+    };
+    if let Some(message) = problem {
+        show_error(app, state, message);
         return Phase::Idle;
     }
     let (device, sounds) = {
@@ -401,26 +416,20 @@ fn process(app: &AppHandle, state: &Arc<App>, samples: &[f32]) {
         return show_error(app, state, "Speech model is not loaded");
     };
 
-    let result = pipeline::run(stt, llm.as_ref(), &settings, samples, |stage| match stage {
-        Stage::Transcribing => set_pipeline_state(app, state, "transcribing", None, None),
-        Stage::Polishing => set_pipeline_state(app, state, "polishing", None, None),
+    let result = pipeline::run(stt, llm.as_ref(), &settings, samples, |stage, progress| {
+        // Later values of the same stage would only repeat the overlay event.
+        if progress == 0.0 {
+            match stage {
+                Stage::Transcribing => set_pipeline_state(app, state, "transcribing", None, None),
+                Stage::Polishing => set_pipeline_state(app, state, "polishing", None, None),
+            }
+        }
+        Ok(())
     });
     match result {
         Ok(Some(output)) => {
             log::info!("Dictated {:.1}s: stt {} ms, llm {} ms: {:?}", output.audio_s, output.stt_ms, output.llm_ms, output.cleaned);
-            let (timestamp, time_ms) = settings::now_rfc3339();
-            let entry = HistoryEntry {
-                id: time_ms.to_string(),
-                timestamp,
-                raw: output.raw,
-                cleaned: output.cleaned.clone(),
-                stt_ms: output.stt_ms,
-                llm_ms: output.llm_ms,
-                total_ms: output.total_ms,
-                cleanup_used: output.cleanup_used,
-            };
-            let _ = settings::append_history(&entry);
-            let _ = app.emit("history-added", entry);
+            add_history(app, &output);
             if let Err(error) = deliver(&output.cleaned, &settings.paste_mode) {
                 return show_error(app, state, &format!("Paste failed: {error:#}"));
             }
@@ -432,6 +441,24 @@ fn process(app: &AppHandle, state: &Arc<App>, samples: &[f32]) {
         }
         Err(error) => show_error(app, state, &format!("Transcription failed: {error:#}")),
     }
+}
+
+/// Appends the result to the history file and tells the windows.
+fn add_history(app: &AppHandle, output: &pipeline::Output) -> HistoryEntry {
+    let (timestamp, time_ms) = settings::now_rfc3339();
+    let entry = HistoryEntry {
+        id: time_ms.to_string(),
+        timestamp,
+        raw: output.raw.clone(),
+        cleaned: output.cleaned.clone(),
+        stt_ms: output.stt_ms,
+        llm_ms: output.llm_ms,
+        total_ms: output.total_ms,
+        cleanup_used: output.cleanup_used,
+    };
+    let _ = settings::append_history(&entry);
+    let _ = app.emit("history-added", entry.clone());
+    entry
 }
 
 /// Puts the text on the clipboard and, in paste mode, sends Ctrl+V and restores the old clipboard.
@@ -637,6 +664,11 @@ fn clear_history() {
     settings::clear_history();
 }
 
+#[tauri::command]
+fn delete_history(id: String) -> Result<(), String> {
+    settings::delete_history(&id).map_err(|e| e.to_string())
+}
+
 /// While active, the global hotkey is off so the UI can read the key combination.
 #[tauri::command]
 fn set_hotkey_capture(app: AppHandle, state: Shared, active: bool) -> Result<(), String> {
@@ -661,4 +693,71 @@ fn download_models(app: AppHandle, state: Shared) {
 #[tauri::command]
 fn open_log_folder() {
     let _ = Command::new("explorer").arg(settings::log_dir()).spawn();
+}
+
+/// Async, because a blocking dialog on the main thread would deadlock.
+#[tauri::command]
+async fn pick_audio_file(app: AppHandle) -> Option<String> {
+    let file = app.dialog().file().add_filter("Audio", &["mp3", "wav", "m4a", "aac", "mp4", "flac", "ogg", "oga"]).blocking_pick_file()?;
+    file.into_path().ok().map(|path| path.to_string_lossy().into_owned())
+}
+
+/// Asks where to save the text and writes it there. Returns the file name, or None when cancelled.
+#[tauri::command]
+async fn save_text_file(app: AppHandle, name: String, text: String) -> Result<Option<String>, String> {
+    let Some(file) = app.dialog().file().set_file_name(&name).add_filter("Text", &["txt"]).blocking_save_file() else {
+        return Ok(None);
+    };
+    let path = file.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok(path.file_name().map(|n| n.to_string_lossy().into_owned()))
+}
+
+/// Transcribes an audio file like a dictation, but only returns the result and adds it to the history.
+/// Rejects with "Cancelled" after `cancel_transcription`.
+#[tauri::command]
+async fn transcribe_file(app: AppHandle, state: Shared<'_>, path: String, cleanup: bool) -> Result<HistoryEntry, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || transcribe_file_blocking(&app, &state, &path, cleanup))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Stops the file transcription at its next check. A running STT chunk or LLM request is not interrupted.
+#[tauri::command]
+fn cancel_transcription(state: Shared) {
+    state.cancel_file.store(true, Ordering::SeqCst);
+}
+
+fn transcribe_file_blocking(app: &AppHandle, state: &Arc<App>, path: &str, cleanup: bool) -> Result<HistoryEntry, String> {
+    state.cancel_file.store(false, Ordering::SeqCst);
+    let cancelled = || state.cancel_file.load(Ordering::SeqCst);
+    let mut settings = state.settings.read().unwrap().clone();
+    settings.cleanup_enabled = cleanup;
+    let mut stt = state.stt.lock().unwrap();
+    let llm = state.llm.lock().unwrap();
+    let Some(stt) = stt.as_mut() else {
+        return Err("Speech model is still loading".into());
+    };
+
+    let samples = audio::read_file(Path::new(path)).map_err(|e| format!("Could not read the audio file: {e:#}"))?;
+    if cancelled() {
+        return Err("Cancelled".into());
+    }
+    let output = pipeline::run(stt, llm.as_ref(), &settings, &samples, |stage, progress| {
+        let stage = match stage {
+            Stage::Transcribing => "transcribing",
+            Stage::Polishing => "polishing",
+        };
+        let _ = app.emit("file-progress", json!({ "stage": stage, "progress": progress }));
+        if cancelled() {
+            return Err(anyhow!("cancelled"));
+        }
+        Ok(())
+    })
+    .map_err(|e| if cancelled() { "Cancelled".to_string() } else { format!("Transcription failed: {e:#}") })?
+    .ok_or("No speech found in this file")?;
+
+    log::info!("Transcribed file {:.1}s: stt {} ms, llm {} ms, {} characters", output.audio_s, output.stt_ms, output.llm_ms, output.cleaned.chars().count());
+    Ok(add_history(app, &output))
 }

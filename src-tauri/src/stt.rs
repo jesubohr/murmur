@@ -21,6 +21,8 @@ const LEAD_SILENCE_SAMPLES: usize = 4000;
 /// longer audio is split into chunks of at most `MAX_CHUNK_SAMPLES`.
 const FIXED_FRAMES: usize = 1280;
 const MAX_CHUNK_SAMPLES: usize = 192_000;
+/// On the CPU, full attention over a longer clip needs too much memory, so longer clips are chunked too.
+const CPU_MAX_SAMPLES: usize = 960_000;
 const SPLIT_WINDOW_SAMPLES: usize = 32_000;
 const SPLIT_FRAME_SAMPLES: usize = 800;
 
@@ -79,12 +81,12 @@ impl Stt {
 
     /// The first run compiles the encoder, so do it before the user dictates.
     pub fn warm_up(&mut self) -> Result<()> {
-        self.transcribe(&vec![0.0; 32_000]).map(|_| ())
+        self.transcribe(&vec![0.0; 32_000], |_| Ok(())).map(|_| ())
     }
 
-    /// Takes 16 kHz mono samples.
-    pub fn transcribe(&mut self, samples: &[f32]) -> Result<String> {
-        if !self.fixed_length {
+    /// Takes 16 kHz mono samples. `on_progress` gets 0..1 after each chunk of a long clip. An error from it stops the work.
+    pub fn transcribe(&mut self, samples: &[f32], mut on_progress: impl FnMut(f32) -> Result<()>) -> Result<String> {
+        if !self.fixed_length && samples.len() <= CPU_MAX_SAMPLES {
             return self.transcribe_chunk(samples);
         }
         let mut texts = vec![];
@@ -97,6 +99,7 @@ impl Stt {
                 texts.push(text);
             }
             rest = tail;
+            on_progress((samples.len() - rest.len()) as f32 / samples.len() as f32)?;
         }
         Ok(texts.join(" "))
     }

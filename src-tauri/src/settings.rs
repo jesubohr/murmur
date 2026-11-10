@@ -144,3 +144,17 @@ pub fn read_history(limit: usize) -> Vec<HistoryEntry> {
 pub fn clear_history() {
     let _ = fs::remove_file(history_path());
 }
+
+/// Removes the entry with this id. Lines that do not parse stay in the file.
+pub fn delete_history(id: &str) -> anyhow::Result<()> {
+    let Ok(text) = fs::read_to_string(history_path()) else { return Ok(()) };
+    fs::write(history_path(), without_entry(&text, id))?;
+    Ok(())
+}
+
+fn without_entry(text: &str, id: &str) -> String {
+    let is_entry = |line: &&str| {
+        serde_json::from_str::<serde_json::Value>(line).is_ok_and(|value| value["id"].as_str() == Some(id))
+    };
+    text.lines().filter(|line| !is_entry(line)).map(|line| format!("{line}\n")).collect()
+}

@@ -1,6 +1,6 @@
 //! Command line test modes (no window):
-//!   murmur.exe --test <wav>... [--stt cpu|gpu] [--no-llm] [--out file.json]
-//!   murmur.exe --bench <wav> [--out file.json]
+//!   murmur.exe --test <audio file>... [--stt cpu|gpu] [--no-llm] [--out file.json]
+//!   murmur.exe --bench <audio file> [--out file.json]
 
 use crate::{audio, llm::Llm, models, pipeline, settings::Settings, stt::Stt};
 use anyhow::{bail, Result};
@@ -20,7 +20,7 @@ pub fn run(args: &[String], llama_dir: &Path) -> Result<()> {
         .map(|(_, a)| a.clone())
         .collect();
     if files.is_empty() {
-        bail!("Pass at least one WAV file");
+        bail!("Pass at least one audio file");
     }
 
     let result = if args[0] == "--bench" {
@@ -53,12 +53,12 @@ fn test(files: &[String], llama_dir: &Path, device: &Option<String>, use_llm: bo
 
     let mut clips = vec![];
     for file in files {
-        // Anything that is not a WAV file is used as a typed transcript, which skips the speech model.
-        let output = if file.ends_with(".wav") {
-            let samples = audio::read_wav(Path::new(file))?;
-            pipeline::run(&mut stt, llm.as_ref(), &settings, &samples, |_| {})?
+        // Anything that is not an audio file is used as a typed transcript, which skips the speech model.
+        let output = if Path::new(file).is_file() {
+            let samples = audio::read_file(Path::new(file))?;
+            pipeline::run(&mut stt, llm.as_ref(), &settings, &samples, |_, _| Ok(()))?
         } else {
-            Some(pipeline::polish(llm.as_ref(), &settings, file))
+            Some(pipeline::polish(llm.as_ref(), &settings, file, |_| Ok(()))?)
         };
         clips.push(json!({ "file": file, "result": output }));
     }
@@ -72,20 +72,20 @@ fn test(files: &[String], llama_dir: &Path, device: &Option<String>, use_llm: bo
 
 /// Compares the encoder on CPU and on the GPU.
 fn bench(file: &str) -> Result<Value> {
-    let samples = audio::read_wav(Path::new(file))?;
+    let samples = audio::read_file(Path::new(file))?;
     let mut runs = vec![];
     for device in ["cpu", "gpu"] {
         let started = Instant::now();
         let mut stt = Stt::load(&models::parakeet_dir(), device)?;
         let load_ms = started.elapsed().as_millis();
         let started = Instant::now();
-        stt.transcribe(&samples)?;
+        stt.transcribe(&samples, |_| Ok(()))?;
         let first_ms = started.elapsed().as_millis();
         let mut times = vec![];
         let mut text = String::new();
         for _ in 0..5 {
             let started = Instant::now();
-            text = stt.transcribe(&samples)?;
+            text = stt.transcribe(&samples, |_| Ok(()))?;
             times.push(started.elapsed().as_millis());
         }
         runs.push(json!({
